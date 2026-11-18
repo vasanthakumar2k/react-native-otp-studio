@@ -275,7 +275,13 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
   const resolvedCursor = cursorColor ?? activeBorderColor;
   const resolvedPlaceholder = placeholderTextColor ?? (glassEffect ? "rgba(255,255,255,0.6)" : DEFAULTS.placeholderTextColor);
 
-  const shadowObj: OtpShadow | null = shadow === true ? DEFAULT_SHADOW : shadow || (glassEffect ? { opacity: 0.15, radius: 12, elevation: 3 } : null);
+  // Android draws `elevation` shadows behind the view, so they show through a
+  // translucent glass fill as a dark inner square. Glass cells skip elevation on Android.
+  const noElevation = glassEffect && Platform.OS === "android";
+  const shadowObj: OtpShadow | null =
+    shadow === true ? DEFAULT_SHADOW : shadow || (glassEffect && !noElevation ? { opacity: 0.12, radius: 12, elevation: 0 } : null);
+  // Subtle brighter top rim gives the glass its shine without an extra overlay layer.
+  const glassRim = glassTint === "dark" ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.75)";
 
   const placeholderChars = placeholder ? Array.from(placeholder) : [];
   const placeholderFor = (i: number) =>
@@ -298,33 +304,15 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
     textStyle,
   ];
 
-  const glassLayer = (s: OtpCellState) =>
-    glassEffect ? (
-      <>
-        {BlurComponent ? (
-          <BlurComponent
-            style={StyleSheet.absoluteFill}
-            intensity={blurIntensity}
-            blurAmount={Math.round(blurIntensity / 3)}
-            tint={glassTint}
-            blurType={glassTint}
-          />
-        ) : null}
-        {!isUnderline && (
-          <View
-            pointerEvents="none"
-            style={[
-              styles.glassHighlight,
-              {
-                borderTopLeftRadius: radius,
-                borderTopRightRadius: radius,
-                backgroundColor: glassTint === "dark" ? "rgba(255,255,255,0.06)" : "rgba(255,255,255,0.22)",
-                opacity: s.isActive ? 1 : 0.8,
-              },
-            ]}
-          />
-        )}
-      </>
+  const glassLayer =
+    glassEffect && BlurComponent ? (
+      <BlurComponent
+        style={StyleSheet.absoluteFill}
+        intensity={blurIntensity}
+        blurAmount={Math.round(blurIntensity / 3)}
+        tint={glassTint}
+        blurType={glassTint}
+      />
     ) : null;
 
   const cells: React.ReactNode[] = [];
@@ -350,8 +338,15 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
 
     const glow: ViewStyle | null =
       activeGlow && state.isActive
-        ? { shadowColor: error ? errorColor : activeBorderColor, shadowOpacity: 0.45, shadowRadius: 10, shadowOffset: { width: 0, height: 0 }, elevation: 6 }
+        ? {
+            shadowColor: error ? errorColor : activeBorderColor,
+            shadowOpacity: 0.45,
+            shadowRadius: 10,
+            shadowOffset: { width: 0, height: 0 },
+            elevation: noElevation ? 0 : 6,
+          }
         : null;
+    const showRim = glassEffect && !isUnderline && borderColor == null && currentBorder === baseBorder;
 
     const boxStyle: StyleProp<ViewStyle> = [
       styles.cell,
@@ -364,8 +359,10 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
       isUnderline
         ? { borderBottomWidth: state.isActive ? bw + 1 : bw, borderColor: currentBorder }
         : { borderWidth: bw, borderColor: currentBorder },
+      showRim ? { borderTopColor: glassRim } : null,
       glassEffect || BlurComponent ? { overflow: Platform.OS === "android" ? "hidden" : "visible" } : null,
       shadowObj && !isUnderline ? shadowStyle(shadowObj) : null,
+      noElevation ? { elevation: 0 } : null,
       glow,
       disabled ? { opacity: 0.5 } : null,
       cellStyle,
@@ -388,7 +385,7 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
             placeholderColor={resolvedPlaceholder}
             cursor={showCursor && !disabled ? <Cursor color={error ? errorColor : resolvedCursor} height={Math.round(resolvedFontSize * 1.1)} /> : null}
             animated={animated}
-            glass={glassLayer(state)}
+            glass={glassLayer}
           />
         )}
         {i < length - 1 && separator != null && (!boundaries || boundaries.has(i)) ? (
@@ -457,13 +454,6 @@ const styles = StyleSheet.create({
   cell: {
     alignItems: "center",
     justifyContent: "center",
-  },
-  glassHighlight: {
-    position: "absolute",
-    top: 0,
-    left: 0,
-    right: 0,
-    height: "50%",
   },
   separator: {
     alignItems: "center",

@@ -128,6 +128,18 @@ describe("OtpInput", () => {
     expect(screen.getAllByTestId("blur")).toHaveLength(2);
   });
 
+  it("glass cells never use elevation on Android", () => {
+    const { Platform } = require("react-native");
+    const prev = Platform.OS;
+    Platform.OS = "android";
+    try {
+      render(<OtpInput length={1} glassEffect shadow activeGlow autoFocus />);
+      expect(flat("otp-input-cell-0").elevation ?? 0).toBe(0);
+    } finally {
+      Platform.OS = prev;
+    }
+  });
+
   it("dark glass uses light text", () => {
     render(<OtpInput length={1} glassEffect glassTint="dark" defaultValue="5" />);
     const t = screen.getByTestId("otp-input-cell-0").findAll((n: any) => n.type === "Text")[0];

@@ -172,7 +172,7 @@ import { BlurView } from "expo-blur";                    // Expo
 | `BlurComponent` | none | Optional real blur component, rendered inside each box |
 | `blurIntensity` | `30` | Sent to `BlurComponent` as `intensity` (expo-blur) and `blurAmount` (community blur) |
 
-With `glassEffect` on, the box gets a translucent fill, a light border, a shine on the top half and a soft shadow. **No extra dependency is needed.** `BlurComponent` only adds a true background blur on top.
+With `glassEffect` on, the box gets a translucent fill, a light border with a brighter top rim, and (on iOS) a soft shadow. On Android, glass cells never use `elevation`, because Android draws that shadow behind the translucent fill and it shows through as a dark inner square. **No extra dependency is needed.** `BlurComponent` only adds a true background blur on top.
 
 > **Tip:** glass looks best over an image, gradient or colorful background. On a plain white screen, use `glassTint="dark"`.
 
