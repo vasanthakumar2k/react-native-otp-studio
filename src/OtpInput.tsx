@@ -6,12 +6,22 @@ import {
   StyleSheet,
   Text,
   TextInput,
+  Vibration,
   View,
   type StyleProp,
   type TextStyle,
   type ViewStyle,
 } from "react-native";
-import type { OtpCellState, OtpInputProps, OtpInputRef, OtpPosition, OtpShadow, OtpShape } from "./types";
+import type {
+  OtpCellState,
+  OtpEntryAnimation,
+  OtpInputProps,
+  OtpInputRef,
+  OtpPosition,
+  OtpPreset,
+  OtpShadow,
+  OtpShape,
+} from "./types";
 import { createTransformer, createValidator, groupBoundaries, keyboardTypeFor, sanitize } from "./utils";
 
 const DEFAULTS = {
@@ -20,6 +30,7 @@ const DEFAULTS = {
   borderColor: "#D1D5DB",
   activeBorderColor: "#6366F1",
   errorColor: "#EF4444",
+  successColor: "#16A34A",
   placeholderTextColor: "#9CA3AF",
 };
 
@@ -30,6 +41,38 @@ const DEFAULT_SHADOW: Required<OtpShadow> = {
   offset: { width: 0, height: 4 },
   elevation: 4,
 };
+
+const PRESETS: Record<OtpPreset, Partial<OtpInputProps>> = {
+  dark: {
+    textColor: "#F9FAFB",
+    backgroundColor: "#1F2937",
+    borderColor: "#374151",
+    activeBorderColor: "#A5B4FC",
+    placeholderTextColor: "#6B7280",
+  },
+  minimal: {
+    shape: "underline",
+    textColor: "#111827",
+    borderColor: "#D1D5DB",
+    activeBorderColor: "#111827",
+  },
+  neon: {
+    textColor: "#E0F2FE",
+    backgroundColor: "#0B0F1A",
+    borderColor: "#1E293B",
+    activeBorderColor: "#22D3EE",
+    placeholderTextColor: "#334155",
+    activeGlow: true,
+  },
+};
+
+/** Preset values fill in only the props you did not pass. */
+function applyPreset(props: OtpInputProps): OtpInputProps {
+  if (!props.preset || !PRESETS[props.preset]) return props;
+  const out: Record<string, unknown> = { ...PRESETS[props.preset] };
+  for (const [k, v] of Object.entries(props)) if (v !== undefined) out[k] = v;
+  return out as OtpInputProps;
+}
 
 const JUSTIFY: Record<OtpPosition, ViewStyle["justifyContent"]> = {
   center: "center",
@@ -87,61 +130,185 @@ function Cursor({ color, height }: { color: string; height: number }) {
   );
 }
 
-interface CellProps {
-  state: OtpCellState;
-  style: StyleProp<ViewStyle>;
-  textStyle: StyleProp<TextStyle>;
-  placeholder?: string;
+/** Everything a cell needs that is the same for every cell. Memoised so cells can skip re-renders. */
+interface CellConfig {
+  width: number;
+  height: number;
+  radius: number;
+  bw: number;
+  isUnderline: boolean;
+  bg: string;
+  activeBg?: string;
+  filledBg?: string;
+  border: string;
+  activeBorder: string;
+  filledBorder?: string;
+  errorColor: string;
+  successColor: string;
+  rim: string | null;
+  overflow: ViewStyle | null;
+  shadow: ViewStyle | null;
+  noElevation: boolean;
+  activeGlow: boolean;
+  disabled: boolean;
+  cellStyle: StyleProp<ViewStyle>;
+  filledCellStyle: StyleProp<ViewStyle>;
+  activeCellStyle: StyleProp<ViewStyle>;
+  errorCellStyle: StyleProp<ViewStyle>;
+  successCellStyle: StyleProp<ViewStyle>;
+  text: StyleProp<TextStyle>;
   placeholderColor: string;
-  cursor: React.ReactNode;
+  showCursor: boolean;
+  cursorColor: string;
+  cursorHeight: number;
   animated: boolean;
+  entryAnimation: OtpEntryAnimation;
   glass: React.ReactNode;
+}
+
+interface CellProps {
+  displayChar: string;
+  isActive: boolean;
+  isFilled: boolean;
+  hasError: boolean;
+  isSuccess: boolean;
+  placeholder?: string;
+  cfg: CellConfig;
   testID?: string;
 }
 
-function Cell({ state, style, textStyle, placeholder, placeholderColor, cursor, animated, glass, testID }: CellProps) {
+const Cell = React.memo(function Cell({
+  displayChar,
+  isActive,
+  isFilled,
+  hasError,
+  isSuccess,
+  placeholder,
+  cfg,
+  testID,
+}: CellProps) {
   const scale = React.useRef(new Animated.Value(1)).current;
+  const entry = React.useRef(new Animated.Value(1)).current;
+  const mounted = React.useRef(false);
 
   React.useEffect(() => {
-    if (!animated) return;
+    if (!cfg.animated) return;
     Animated.spring(scale, {
-      toValue: state.isActive ? 1.06 : 1,
+      toValue: isActive ? 1.06 : 1,
       friction: 6,
       tension: 160,
       useNativeDriver: true,
     }).start();
-  }, [animated, state.isActive, scale]);
+  }, [cfg.animated, isActive, scale]);
+
+  React.useEffect(() => {
+    if (!cfg.animated || !isSuccess) return;
+    Animated.sequence([
+      Animated.timing(scale, { toValue: 1.1, duration: 120, useNativeDriver: true }),
+      Animated.spring(scale, { toValue: 1, friction: 5, tension: 160, useNativeDriver: true }),
+    ]).start();
+  }, [cfg.animated, isSuccess, scale]);
+
+  // Entry animation runs only when a box goes from empty to filled, not on first mount.
+  React.useEffect(() => {
+    const first = !mounted.current;
+    mounted.current = true;
+    if (first || !isFilled || cfg.entryAnimation === "none") return;
+    entry.setValue(0);
+    (cfg.entryAnimation === "pop"
+      ? Animated.spring(entry, { toValue: 1, friction: 5, tension: 180, useNativeDriver: true })
+      : Animated.timing(entry, { toValue: 1, duration: 200, useNativeDriver: true })
+    ).start();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isFilled]);
+
+  let border = cfg.border;
+  if (isFilled && cfg.filledBorder) border = cfg.filledBorder;
+  if (isActive) border = cfg.activeBorder;
+  if (isSuccess) border = cfg.successColor;
+  if (hasError) border = cfg.errorColor;
+
+  let bg = cfg.bg;
+  if (isFilled && cfg.filledBg) bg = cfg.filledBg;
+  if (isActive && cfg.activeBg) bg = cfg.activeBg;
+
+  const glow: ViewStyle | null =
+    cfg.activeGlow && isActive
+      ? {
+          shadowColor: hasError ? cfg.errorColor : cfg.activeBorder,
+          shadowOpacity: 0.45,
+          shadowRadius: 10,
+          shadowOffset: { width: 0, height: 0 },
+          elevation: cfg.noElevation ? 0 : 6,
+        }
+      : null;
+
+  const boxStyle: StyleProp<ViewStyle> = [
+    styles.cell,
+    { width: cfg.width, height: cfg.height, backgroundColor: bg, borderRadius: cfg.radius },
+    cfg.isUnderline
+      ? { borderBottomWidth: isActive ? cfg.bw + 1 : cfg.bw, borderColor: border }
+      : { borderWidth: cfg.bw, borderColor: border },
+    cfg.rim && border === cfg.border ? { borderTopColor: cfg.rim } : null,
+    cfg.overflow,
+    cfg.shadow,
+    cfg.noElevation ? { elevation: 0 } : null,
+    glow,
+    cfg.disabled ? { opacity: 0.5 } : null,
+    cfg.cellStyle,
+    isFilled ? cfg.filledCellStyle : null,
+    isActive ? cfg.activeCellStyle : null,
+    isSuccess ? cfg.successCellStyle : null,
+    hasError ? cfg.errorCellStyle : null,
+  ];
+
+  const entryStyle =
+    cfg.entryAnimation === "pop"
+      ? { transform: [{ scale: entry.interpolate({ inputRange: [0, 1], outputRange: [0.4, 1] }) }] }
+      : cfg.entryAnimation === "fade"
+        ? { opacity: entry, transform: [{ translateY: entry.interpolate({ inputRange: [0, 1], outputRange: [6, 0] }) }] }
+        : null;
 
   return (
-    <Animated.View testID={testID} style={[style, animated ? { transform: [{ scale }] } : null]}>
-      {glass}
-      {state.isFilled ? (
-        <Text style={textStyle} allowFontScaling={false}>
-          {state.displayChar}
-        </Text>
-      ) : state.isActive && cursor ? (
-        cursor
+    <Animated.View testID={testID} style={[boxStyle, cfg.animated ? { transform: [{ scale }] } : null]}>
+      {cfg.glass}
+      {isFilled ? (
+        entryStyle ? (
+          <Animated.Text style={[cfg.text, entryStyle]} allowFontScaling={false}>
+            {displayChar}
+          </Animated.Text>
+        ) : (
+          <Text style={cfg.text} allowFontScaling={false}>
+            {displayChar}
+          </Text>
+        )
+      ) : isActive && cfg.showCursor && !cfg.disabled ? (
+        <Cursor color={hasError ? cfg.errorColor : cfg.cursorColor} height={cfg.cursorHeight} />
       ) : placeholder ? (
-        <Text style={[textStyle, { color: placeholderColor }]} allowFontScaling={false}>
+        <Text style={[cfg.text, { color: cfg.placeholderColor }]} allowFontScaling={false}>
           {placeholder}
         </Text>
       ) : null}
     </Animated.View>
   );
-}
+});
 
-export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function OtpInput(props, ref) {
+export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function OtpInput(rawProps, ref) {
+  const props = applyPreset(rawProps);
   const {
     length = 6,
     value: controlledValue,
     defaultValue,
     onChange,
     onComplete,
+    onVerify,
+    completeDelay = 0,
     onFocus,
     onBlur,
     type = "numeric",
     transform = "none",
     mask = false,
+    maskDelay = 0,
     shape = "rounded",
     size = 52,
     cellWidth,
@@ -158,6 +325,7 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
     activeBorderColor = DEFAULTS.activeBorderColor,
     filledBorderColor,
     errorColor = DEFAULTS.errorColor,
+    successColor = DEFAULTS.successColor,
     cursorColor,
     placeholderTextColor,
     shadow = false,
@@ -174,9 +342,12 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
     showCursor = true,
     animated = true,
     shakeOnError = true,
+    vibrateOnError = false,
+    entryAnimation = "none",
     separator,
     groups,
     error = false,
+    success = false,
     disabled = false,
     autoFocus = false,
     blurOnComplete = false,
@@ -185,6 +356,7 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
     activeCellStyle,
     filledCellStyle,
     errorCellStyle,
+    successCellStyle,
     textStyle,
     renderCell,
     textInputProps,
@@ -198,30 +370,93 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
   const isValid = React.useMemo(() => createValidator(type), [type]);
   const transformChar = React.useMemo(() => createTransformer(transform), [transform]);
   const clean = React.useCallback((t: string) => sanitize(t, length, isValid, transformChar), [length, isValid, transformChar]);
+  const maskChar = mask === true ? "•" : typeof mask === "string" ? mask : null;
 
   const [internal, setInternal] = React.useState(() => clean(controlledValue ?? defaultValue ?? ""));
   const value = controlledValue !== undefined ? clean(controlledValue) : internal;
   const [focused, setFocused] = React.useState(false);
+  const [revealIndex, setRevealIndex] = React.useState(-1);
+  const [verifyResult, setVerifyResult] = React.useState<boolean | null>(null);
+  const [, forceRender] = React.useReducer((x: number) => x + 1, 0);
   const inputRef = React.useRef<React.ComponentRef<typeof TextInput>>(null);
   const shakeX = React.useRef(new Animated.Value(0)).current;
 
-  const cb = React.useRef({ onChange, onComplete });
-  cb.current = { onChange, onComplete };
+  const cb = React.useRef({ onChange, onComplete, onVerify });
+  cb.current = { onChange, onComplete, onVerify };
   const valueRef = React.useRef(value);
   valueRef.current = value;
 
+  const alive = React.useRef(true);
+  const verifying = React.useRef(false);
+  const verifiedCode = React.useRef<string | null>(null);
+  const completeTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  const revealTimer = React.useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+
+  React.useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+      clearTimeout(completeTimer.current);
+      clearTimeout(revealTimer.current);
+    };
+  }, []);
+
+  const runComplete = React.useCallback(
+    (code: string) => {
+      cb.current.onComplete?.(code);
+      if (blurOnComplete) inputRef.current?.blur();
+      const verify = cb.current.onVerify;
+      if (!verify || verifying.current || code === verifiedCode.current) return;
+      verifiedCode.current = code;
+      verifying.current = true;
+      Promise.resolve()
+        .then(() => verify(code))
+        .then(
+          (ok) => {
+            if (alive.current && valueRef.current === code) setVerifyResult(ok === true ? true : ok === false ? false : null);
+          },
+          () => {
+            verifiedCode.current = null; // let the user retry after a network error
+            if (alive.current && valueRef.current === code) setVerifyResult(false);
+          },
+        )
+        .finally(() => {
+          verifying.current = false;
+        });
+    },
+    [blurOnComplete],
+  );
+
   const commit = React.useCallback(
     (next: string) => {
-      if (next === valueRef.current) return;
+      const prev = valueRef.current;
+      if (next === prev) return;
       valueRef.current = next;
       if (controlledValue === undefined) setInternal(next);
+      setVerifyResult(null);
+      if (next.length === 0) verifiedCode.current = null;
+      if (maskChar && maskDelay > 0) {
+        clearTimeout(revealTimer.current);
+        if (next.length > prev.length) {
+          setRevealIndex(next.length - 1);
+          revealTimer.current = setTimeout(() => alive.current && setRevealIndex(-1), maskDelay);
+        } else {
+          setRevealIndex(-1);
+        }
+      }
       cb.current.onChange?.(next);
+      clearTimeout(completeTimer.current);
       if (next.length === length) {
-        cb.current.onComplete?.(next);
-        if (blurOnComplete) inputRef.current?.blur();
+        if (completeDelay > 0) {
+          completeTimer.current = setTimeout(() => {
+            if (alive.current && valueRef.current === next) runComplete(next);
+          }, completeDelay);
+        } else {
+          runComplete(next);
+        }
       }
     },
-    [controlledValue, length, blurOnComplete],
+    [controlledValue, length, maskChar, maskDelay, completeDelay, runComplete],
   );
 
   const focus = React.useCallback(() => {
@@ -249,12 +484,18 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
     [focus, commit, clean],
   );
 
-  // Shake on error.
+  const hasError = error || verifyResult === false;
+  const isSuccess = !hasError && (success || verifyResult === true);
+
+  // Shake (and optionally vibrate) on error.
   React.useEffect(() => {
-    if (!error || !shakeOnError) return;
+    if (!hasError) return;
+    if (vibrateOnError) Vibration.vibrate(typeof vibrateOnError === "number" ? vibrateOnError : 60);
+    if (!shakeOnError) return;
     const step = (to: number) => Animated.timing(shakeX, { toValue: to, duration: 50, useNativeDriver: true });
     Animated.sequence([step(10), step(-10), step(8), step(-8), step(4), step(0)]).start();
-  }, [error, shakeOnError, shakeX]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasError, shakeOnError, shakeX]);
 
   // ---- styles ----
   const isUnderline = shape === "underline";
@@ -278,42 +519,90 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
   // Android draws `elevation` shadows behind the view, so they show through a
   // translucent glass fill as a dark inner square. Glass cells skip elevation on Android.
   const noElevation = glassEffect && Platform.OS === "android";
-  const shadowObj: OtpShadow | null =
-    shadow === true ? DEFAULT_SHADOW : shadow || (glassEffect && !noElevation ? { opacity: 0.12, radius: 12, elevation: 0 } : null);
   // Subtle brighter top rim gives the glass its shine without an extra overlay layer.
-  const glassRim = glassTint === "dark" ? "rgba(255,255,255,0.32)" : "rgba(255,255,255,0.75)";
+  const rim =
+    glassEffect && !isUnderline && borderColor == null
+      ? glassTint === "dark"
+        ? "rgba(255,255,255,0.32)"
+        : "rgba(255,255,255,0.75)"
+      : null;
+
+  const glass = React.useMemo(
+    () =>
+      glassEffect && BlurComponent ? (
+        <BlurComponent
+          style={StyleSheet.absoluteFill}
+          intensity={blurIntensity}
+          blurAmount={Math.round(blurIntensity / 3)}
+          tint={glassTint}
+          blurType={glassTint}
+        />
+      ) : null,
+    [glassEffect, BlurComponent, blurIntensity, glassTint],
+  );
+
+  const cfg = React.useMemo<CellConfig>(() => {
+    const shadowObj: OtpShadow | null =
+      shadow === true ? DEFAULT_SHADOW : shadow || (glassEffect && !noElevation ? { opacity: 0.12, radius: 12, elevation: 0 } : null);
+    return {
+      width,
+      height,
+      radius,
+      bw,
+      isUnderline,
+      bg: baseBg,
+      activeBg: activeBackgroundColor,
+      filledBg: filledBackgroundColor,
+      border: baseBorder,
+      activeBorder: activeBorderColor,
+      filledBorder: filledBorderColor,
+      errorColor,
+      successColor,
+      rim,
+      overflow: glassEffect || BlurComponent ? { overflow: Platform.OS === "android" ? "hidden" : "visible" } : null,
+      shadow: shadowObj && !isUnderline ? shadowStyle(shadowObj) : null,
+      noElevation,
+      activeGlow,
+      disabled,
+      cellStyle,
+      filledCellStyle,
+      activeCellStyle,
+      errorCellStyle,
+      successCellStyle,
+      text: [
+        {
+          color: baseText,
+          fontSize: maskChar ? resolvedFontSize * 1.1 : resolvedFontSize,
+          fontWeight,
+          fontFamily,
+          textAlign: "center",
+          includeFontPadding: false,
+        },
+        textStyle,
+      ],
+      placeholderColor: resolvedPlaceholder,
+      showCursor,
+      cursorColor: resolvedCursor,
+      cursorHeight: Math.round(resolvedFontSize * 1.1),
+      animated,
+      entryAnimation,
+      glass,
+    };
+  }, [
+    width, height, radius, bw, isUnderline, baseBg, activeBackgroundColor, filledBackgroundColor, baseBorder,
+    activeBorderColor, filledBorderColor, errorColor, successColor, rim, glassEffect, BlurComponent, shadow,
+    noElevation, activeGlow, disabled, cellStyle, filledCellStyle, activeCellStyle, errorCellStyle, successCellStyle,
+    baseText, maskChar, resolvedFontSize, fontWeight, fontFamily, textStyle, resolvedPlaceholder, showCursor,
+    resolvedCursor, animated, entryAnimation, glass,
+  ]);
 
   const placeholderChars = placeholder ? Array.from(placeholder) : [];
   const placeholderFor = (i: number) =>
     placeholderChars.length === length ? placeholderChars[i] : placeholderChars.length ? placeholder : undefined;
 
-  const maskChar = mask === true ? "•" : typeof mask === "string" ? mask : null;
   const chars = Array.from(value);
   const activeIndex = focused ? Math.min(chars.length, length - 1) : -1;
   const boundaries = groupBoundaries(groups, length);
-
-  const text: StyleProp<TextStyle> = [
-    {
-      color: baseText,
-      fontSize: maskChar ? resolvedFontSize * 1.1 : resolvedFontSize,
-      fontWeight,
-      fontFamily,
-      textAlign: "center",
-      includeFontPadding: false,
-    },
-    textStyle,
-  ];
-
-  const glassLayer =
-    glassEffect && BlurComponent ? (
-      <BlurComponent
-        style={StyleSheet.absoluteFill}
-        intensity={blurIntensity}
-        blurAmount={Math.round(blurIntensity / 3)}
-        tint={glassTint}
-        blurType={glassTint}
-      />
-    ) : null;
 
   const cells: React.ReactNode[] = [];
   for (let i = 0; i < length; i++) {
@@ -321,55 +610,12 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
     const state: OtpCellState = {
       index: i,
       char,
-      displayChar: char && maskChar ? maskChar : char,
+      displayChar: char && maskChar && i !== revealIndex ? maskChar : char,
       isActive: activeIndex === i,
       isFilled: !!char,
-      hasError: error,
+      hasError,
+      isSuccess,
     };
-
-    let currentBorder = baseBorder;
-    if (state.isFilled && filledBorderColor) currentBorder = filledBorderColor;
-    if (state.isActive) currentBorder = activeBorderColor;
-    if (error) currentBorder = errorColor;
-
-    let currentBg = baseBg;
-    if (state.isFilled && filledBackgroundColor) currentBg = filledBackgroundColor;
-    if (state.isActive && activeBackgroundColor) currentBg = activeBackgroundColor;
-
-    const glow: ViewStyle | null =
-      activeGlow && state.isActive
-        ? {
-            shadowColor: error ? errorColor : activeBorderColor,
-            shadowOpacity: 0.45,
-            shadowRadius: 10,
-            shadowOffset: { width: 0, height: 0 },
-            elevation: noElevation ? 0 : 6,
-          }
-        : null;
-    const showRim = glassEffect && !isUnderline && borderColor == null && currentBorder === baseBorder;
-
-    const boxStyle: StyleProp<ViewStyle> = [
-      styles.cell,
-      {
-        width,
-        height,
-        backgroundColor: currentBg,
-        borderRadius: radius,
-      },
-      isUnderline
-        ? { borderBottomWidth: state.isActive ? bw + 1 : bw, borderColor: currentBorder }
-        : { borderWidth: bw, borderColor: currentBorder },
-      showRim ? { borderTopColor: glassRim } : null,
-      glassEffect || BlurComponent ? { overflow: Platform.OS === "android" ? "hidden" : "visible" } : null,
-      shadowObj && !isUnderline ? shadowStyle(shadowObj) : null,
-      noElevation ? { elevation: 0 } : null,
-      glow,
-      disabled ? { opacity: 0.5 } : null,
-      cellStyle,
-      state.isFilled ? filledCellStyle : null,
-      state.isActive ? activeCellStyle : null,
-      error ? errorCellStyle : null,
-    ];
 
     cells.push(
       <React.Fragment key={i}>
@@ -378,14 +624,13 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
         ) : (
           <Cell
             testID={`${testID}-cell-${i}`}
-            state={state}
-            style={boxStyle}
-            textStyle={text}
+            displayChar={state.displayChar}
+            isActive={state.isActive}
+            isFilled={state.isFilled}
+            hasError={hasError}
+            isSuccess={isSuccess}
             placeholder={placeholderFor(i)}
-            placeholderColor={resolvedPlaceholder}
-            cursor={showCursor && !disabled ? <Cursor color={error ? errorColor : resolvedCursor} height={Math.round(resolvedFontSize * 1.1)} /> : null}
-            animated={animated}
-            glass={glassLayer}
+            cfg={cfg}
           />
         )}
         {i < length - 1 && separator != null && (!boundaries || boundaries.has(i)) ? (
@@ -415,7 +660,11 @@ export const OtpInput = React.forwardRef<OtpInputRef, OtpInputProps>(function Ot
         ref={inputRef}
         testID={`${testID}-hidden`}
         value={value}
-        onChangeText={(t) => commit(clean(t))}
+        onChangeText={(t) => {
+          // While onVerify runs, ignore typing; re-render so the native text snaps back.
+          if (verifying.current) return forceRender();
+          commit(clean(t));
+        }}
         maxLength={length}
         keyboardType={keyboardTypeFor(type)}
         inputMode={type === "numeric" ? "numeric" : "text"}
@@ -450,6 +699,8 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: "row",
     alignItems: "center",
+    // OTP codes always read left to right, even on RTL (Arabic, Hebrew, Urdu) devices.
+    direction: "ltr",
   },
   cell: {
     alignItems: "center",

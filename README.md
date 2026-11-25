@@ -21,12 +21,15 @@ Circle · Square · Rounded · Pill · Underline · Glass effect · Colors · Sh
 
 ## Contents
 
+> What changed in each version: see [CHANGELOG.md](CHANGELOG.md).
+
 - [Why this package](#why-this-package)
 - [Install](#install)
 - [Quick start](#quick-start)
 - [Length](#length)
 - [Shapes](#shapes)
 - [Glass effect](#glass-effect)
+- [Presets](#presets)
 - [Colors](#colors)
 - [Shadow and glow](#shadow-and-glow)
 - [Position](#position)
@@ -38,6 +41,8 @@ Circle · Square · Rounded · Pill · Underline · Glass effect · Colors · Sh
 - [States: active, filled, error, disabled](#states-active-filled-error-disabled)
 - [Animations and cursor](#animations-and-cursor)
 - [Controlled value and events](#controlled-value-and-events)
+- [Verify flow (`onVerify`)](#verify-flow-onverify)
+- [Resend timer](#resend-timer)
 - [Ref methods](#ref-methods)
 - [Custom styles](#custom-styles)
 - [Fully custom cell (`renderCell`)](#fully-custom-cell-rendercell)
@@ -60,7 +65,9 @@ Circle · Square · Rounded · Pill · Underline · Glass effect · Colors · Sh
 | 🎨 **Every color** | Text, background, border, active, filled, error, cursor, placeholder |
 | 🔢 **Any length and type** | Numeric, letters, alphanumeric, hex, masked, custom RegExp |
 | 📩 **SMS autofill** | iOS one-time code and Android SMS suggestions; paste works too |
-| ✨ **Animated** | Active box pop, blinking cursor, shake on error |
+| ✨ **Animated** | Active box pop, blinking cursor, shake on error, digit entry animation |
+| ✅ **Verify flow** | Success state, `onVerify` with no double submit, built-in resend timer |
+| 🌍 **RTL safe** | Digits always run left to right, even on Arabic / Hebrew phones |
 | 🟦 **TypeScript** | Full types included |
 
 ---
@@ -172,9 +179,32 @@ import { BlurView } from "expo-blur";                    // Expo
 | `BlurComponent` | none | Optional real blur component, rendered inside each box |
 | `blurIntensity` | `30` | Sent to `BlurComponent` as `intensity` (expo-blur) and `blurAmount` (community blur) |
 
+> 🛠️ Clean Android glass (no dark inner square) from **v1.0.2**
+
 With `glassEffect` on, the box gets a translucent fill, a light border with a brighter top rim, and (on iOS) a soft shadow. On Android, glass cells never use `elevation`, because Android draws that shadow behind the translucent fill and it shows through as a dark inner square. **No extra dependency is needed.** `BlurComponent` only adds a true background blur on top.
 
 > **Tip:** glass looks best over an image, gradient or colorful background. On a plain white screen, use `glassTint="dark"`.
+
+---
+
+## Presets
+
+> 🆕 Available from **v1.1.0**
+
+A full look from one prop. Any prop you pass still wins over the preset.
+
+```tsx
+<OtpInput preset="dark" />
+<OtpInput preset="minimal" />                       // underline, black active line
+<OtpInput preset="neon" />                          // dark boxes, cyan glow
+<OtpInput preset="neon" activeBorderColor="#F0F" /> // preset + your own colour
+```
+
+| Preset | Look |
+| --- | --- |
+| `dark` | Dark grey boxes, light text, light indigo active border |
+| `minimal` | `underline` shape, grey line, black active line |
+| `neon` | Near-black boxes, cyan active border with `activeGlow` |
 
 ---
 
@@ -353,6 +383,14 @@ Invalid characters are ignored. Nothing appears when you type them.
 
 The real value still goes to `onChange` and `onComplete`. Only the display is hidden.
 
+### Show the last digit briefly (`maskDelay`)
+
+> 🆕 Available from **v1.1.0**
+
+```tsx
+<OtpInput mask maskDelay={500} />  // shows the last digit for 500 ms, then •
+```
+
 ---
 
 ## Groups and separators
@@ -399,6 +437,9 @@ The real value still goes to `onChange` and `onComplete`. Only the display is hi
 // Error: red borders + shake animation
 <OtpInput error={isWrong} />
 
+// Success: green borders + small pop (v1.1.0+)
+<OtpInput success={isVerified} />
+
 // Disabled: faded, can't type
 <OtpInput disabled />
 ```
@@ -407,6 +448,7 @@ The real value still goes to `onChange` and `onComplete`. Only the display is hi
 | --- | --- | --- |
 | `autoFocus` | `false` | Opens the keyboard on mount |
 | `error` | `false` | Uses `errorColor` and shakes once when it turns `true` |
+| `success` 🆕 v1.1.0 | `false` | Uses `successColor` (`#16A34A`) and pops once. `error` wins if both are set |
 | `disabled` | `false` | 50% opacity, not editable |
 | `blurOnComplete` | `false` | Closes the keyboard when all boxes are filled |
 
@@ -418,6 +460,8 @@ The real value still goes to `onChange` and `onComplete`. Only the display is hi
 <OtpInput animated={false} />     // no pop on the active box
 <OtpInput showCursor={false} />   // no blinking cursor
 <OtpInput shakeOnError={false} /> // no shake when error turns true
+<OtpInput vibrateOnError />        // v1.1.0+: vibrate 60 ms on error (or pass ms: {120})
+<OtpInput entryAnimation="pop" /> // v1.1.0+: "pop" | "fade" | "none" for each typed digit
 ```
 
 | Prop | Default | Animation |
@@ -425,6 +469,8 @@ The real value still goes to `onChange` and `onComplete`. Only the display is hi
 | `animated` | `true` | Active box scales to 1.06 with a spring |
 | `showCursor` | `true` | Cursor blinks in the active empty box |
 | `shakeOnError` | `true` | Row shakes left and right in 300 ms |
+| `vibrateOnError` 🆕 v1.1.0 | `false` | Vibrates when `error` turns `true`. Uses React Native's `Vibration`; Android needs the `VIBRATE` permission (Expo already has it) |
+| `entryAnimation` 🆕 v1.1.0 | `"none"` | `"pop"` scales a new digit in, `"fade"` fades and slides it up |
 
 All animations use the native driver.
 
@@ -452,6 +498,70 @@ const [code, setCode] = useState("");
 | `onChange(value)` | Any change (type, delete, paste, autofill, `setValue`, `clear`) |
 | `onComplete(value)` | The value reaches `length` characters |
 | `onFocus()` / `onBlur()` | Keyboard opens / closes |
+
+🆕 **v1.1.0:** `completeDelay={150}` waits 150 ms after the last digit before calling `onComplete`, so the user sees the digit before the screen changes. If the code changes during the wait, the call is cancelled.
+
+---
+
+## Verify flow (`onVerify`)
+
+> 🆕 Available from **v1.1.0**
+
+Optional. `onComplete` keeps working exactly as before; `onVerify` is an extra step on top.
+
+```tsx
+<OtpInput
+  completeDelay={150}
+  onVerify={async (code) => {
+    const res = await api.verifyOtp(code);
+    return res.ok; // true = success state, false = error state + shake
+  }}
+/>
+```
+
+- Typing is paused while `onVerify` runs, so there is no double submit.
+- The same code is not sent twice in a row (for example after deleting and retyping the last digit). Clearing the input resets this.
+- If `onVerify` throws (network error), the error state shows and the same code can be retried.
+- Typing again clears the error / success state.
+- Return nothing (`undefined`) if you want to handle the result yourself with `error` / `success`.
+
+---
+
+## Resend timer
+
+> 🆕 Available from **v1.1.0**
+
+```tsx
+import { OtpResendTimer, useOtpTimer } from "react-native-otp-studio";
+
+// Ready-made: "Resend code in 0:30", then a tappable "Resend code"
+<OtpResendTimer seconds={30} onResend={sendSms} />
+
+// Custom text and styles
+<OtpResendTimer
+  seconds={60}
+  onResend={sendSms}
+  waitingText={(time) => `Didn't get it? Wait ${time}`}
+  resendText="Send again"
+  activeTextStyle={{ color: "#16A34A" }}
+/>
+
+// Or build your own UI with the hook
+const { seconds, formatted, canResend, restart } = useOtpTimer(30);
+```
+
+The countdown is based on the clock, so it stays correct after the app was in the background.
+
+| `OtpResendTimer` prop | Default | |
+| --- | --- | --- |
+| `seconds` | `30` | Countdown length |
+| `onResend` | required | Called on tap; the countdown restarts |
+| `autoStart` | `true` | Start on mount |
+| `resendText` | `"Resend code"` | Text when allowed |
+| `waitingText` | `(time) => "Resend code in " + time` | Text while waiting |
+| `disabled`, `style`, `textStyle`, `activeTextStyle`, `testID` | | |
+
+`useOtpTimer(seconds, { autoStart, onFinish })` returns `{ seconds, formatted, canResend, isRunning, restart(seconds?), stop() }`.
 
 ---
 
@@ -589,6 +699,8 @@ See [`example/App.tsx`](example/App.tsx) for every style on one screen.
 
 ## All props
 
+Props marked *(v1.1.0+)* need version 1.1.0 or newer. Everything else works from 1.0.0.
+
 | Prop | Type | Default | Description |
 | --- | --- | --- | --- |
 | **Value** | | | |
@@ -597,11 +709,14 @@ See [`example/App.tsx`](example/App.tsx) for every style on one screen.
 | `defaultValue` | `string` | | Starting value (uncontrolled) |
 | `onChange` | `(value: string) => void` | | Every change |
 | `onComplete` | `(value: string) => void` | | All boxes filled |
+| `onVerify` | `(value: string) => Promise<boolean \| void>` | | Optional verify step, see [Verify flow](#verify-flow-onverify) *(v1.1.0+)* |
+| `completeDelay` | `number` | `0` | ms to wait before `onComplete` / `onVerify` *(v1.1.0+)* |
 | `onFocus` / `onBlur` | `() => void` | | Focus events |
 | **Type** | | | |
 | `type` | `"numeric" \| "alpha" \| "alphanumeric" \| "hex" \| "any" \| RegExp \| (c) => boolean` | `"numeric"` | Allowed characters |
 | `transform` | `"none" \| "uppercase" \| "lowercase" \| (c) => string` | `"none"` | Change chars before checking |
 | `mask` | `boolean \| string` | `false` | Hide characters |
+| `maskDelay` | `number` | `0` | Show the last digit for this many ms *(v1.1.0+)* |
 | **Shape and size** | | | |
 | `shape` | `"square" \| "rounded" \| "circle" \| "pill" \| "underline"` | `"rounded"` | Box shape |
 | `size` | `number` | `52` | Base box size |
@@ -619,9 +734,11 @@ See [`example/App.tsx`](example/App.tsx) for every style on one screen.
 | `activeBorderColor` | `string` | `#6366F1` | Focused border |
 | `filledBorderColor` | `string` | | Filled border |
 | `errorColor` | `string` | `#EF4444` | Error border and cursor |
+| `successColor` | `string` | `#16A34A` | Success border *(v1.1.0+)* |
 | `cursorColor` | `string` | `activeBorderColor` | Cursor |
 | `placeholderTextColor` | `string` | `#9CA3AF` | Placeholder |
 | **Effects** | | | |
+| `preset` | `"dark" \| "minimal" \| "neon"` | | Ready-made look *(v1.1.0+)* |
 | `shadow` | `boolean \| OtpShadow` | `false` | Box shadow |
 | `activeGlow` | `boolean` | `false` | Glow on focused box |
 | `glassEffect` | `boolean` | `false` | Frosted glass |
@@ -638,18 +755,22 @@ See [`example/App.tsx`](example/App.tsx) for every style on one screen.
 | `separator` | `ReactNode` | | Between boxes / groups |
 | `groups` | `number[]` | | Group sizes |
 | `error` | `boolean` | `false` | Error state |
+| `success` | `boolean` | `false` | Success state *(v1.1.0+)* |
 | `disabled` | `boolean` | `false` | Disable input |
 | `autoFocus` | `boolean` | `false` | Focus on mount |
 | `blurOnComplete` | `boolean` | `false` | Close keyboard when done |
 | `showCursor` | `boolean` | `true` | Blinking cursor |
 | `animated` | `boolean` | `true` | Pop animation |
 | `shakeOnError` | `boolean` | `true` | Shake on error |
+| `vibrateOnError` | `boolean \| number` | `false` | Vibrate on error *(v1.1.0+)* |
+| `entryAnimation` | `"none" \| "pop" \| "fade"` | `"none"` | Typed digit animation *(v1.1.0+)* |
 | **Styles** | | | |
 | `containerStyle` | `ViewStyle` | | Wrapper |
 | `cellStyle` | `ViewStyle` | | Every box |
 | `activeCellStyle` | `ViewStyle` | | Focused box |
 | `filledCellStyle` | `ViewStyle` | | Filled boxes |
 | `errorCellStyle` | `ViewStyle` | | Error boxes |
+| `successCellStyle` | `ViewStyle` | | Success boxes *(v1.1.0+)* |
 | `textStyle` | `TextStyle` | | Digit text |
 | **Advanced** | | | |
 | `renderCell` | `(state: OtpCellState) => ReactNode` | | Custom box |
@@ -664,12 +785,16 @@ See [`example/App.tsx`](example/App.tsx) for every style on one screen.
 import type {
   OtpInputProps,  // all props
   OtpInputRef,    // { focus, blur, clear, setValue, getValue }
-  OtpCellState,   // { index, char, displayChar, isActive, isFilled, hasError }
+  OtpCellState,   // { index, char, displayChar, isActive, isFilled, hasError, isSuccess }
   OtpShape,       // "square" | "rounded" | "circle" | "pill" | "underline"
   OtpPosition,    // "center" | "left" | "right" | "space-between" | ...
   OtpShadow,      // { color, opacity, radius, offset, elevation }
   OtpType,
   OtpTransform,
+  OtpPreset,      // "dark" | "minimal" | "neon"
+  OtpEntryAnimation,
+  OtpResendTimerProps,
+  UseOtpTimerResult,
 } from "react-native-otp-studio";
 ```
 
@@ -691,6 +816,12 @@ Lower `size` and `gap`, for example `length={8} size={40} gap={6}`.
 
 **How do I test it?**
 Use these test IDs: `otp-input-hidden` (the input, use `fireEvent.changeText`) and `otp-input-cell-0`…
+
+**Does it work on RTL (Arabic, Hebrew, Urdu) phones?**
+Yes. From **v1.1.0** the digits always run left to right, like the code in the SMS.
+
+**Is it smooth on low-end phones?**
+From **v1.1.0**, each box only re-renders when its own state changes. Keep style props (`cellStyle`, `textStyle`, `shadow` objects) outside the render function or in `useMemo` so this keeps working.
 
 **Which versions does it support?**
 React Native 0.70+ and React 18+.

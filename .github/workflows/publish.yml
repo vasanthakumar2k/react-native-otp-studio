@@ -1,0 +1,29 @@
+name: Publish to npm
+
+# Push a tag like v1.1.0 to publish. Uses npm trusted publishing (OIDC),
+# so no npm token or 2FA code is needed. One-time setup on npmjs.com:
+# package Settings -> Trusted Publisher -> GitHub Actions ->
+# repo vasanthakumar2k/react-native-otp-studio, workflow publish.yml.
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+      - run: npm install -g npm@latest
+      - run: npm ci
+      - name: Check tag matches package.json
+        run: test "v$(node -p "require('./package.json').version")" = "${GITHUB_REF_NAME}"
+      - run: npm publish --provenance --access public
