@@ -828,17 +828,6 @@ React Native 0.70+ and React 18+.
 
 ---
 
-## Contributing
-
-```bash
-git clone https://github.com/vasanthakumar2k/react-native-otp-studio.git
-cd react-native-otp-studio
-npm install
-npm test          # jest
-npm run typecheck
-npm run build
-```
-
 Issues and PRs are welcome: [GitHub Issues](https://github.com/vasanthakumar2k/react-native-otp-studio/issues)
 
 ## Author
