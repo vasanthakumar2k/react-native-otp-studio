@@ -1,6 +1,6 @@
 {
   "name": "react-native-otp-studio",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "type": "commonjs",
   "description": "Beautiful, customizable OTP input for React Native: circle, square, rounded & underline shapes, glass effect, colors, shadows, numeric/alphanumeric/masked types, SMS autofill. Lightweight, zero dependencies, TypeScript. Works with Expo.",
   "main": "./lib/index.js",
